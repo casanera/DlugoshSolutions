@@ -1,18 +1,33 @@
+version: '3.8'
 
 services:
-  db: 
-    image: postgres:14-alpine 
-    container_name: my_project_db # имя контейнера
-    restart: always 
-    environment: 
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: mypassword
-      POSTGRES_DB: mydatabase
+  db:
+    image: postgres:14-alpine
+    container_name: my_project_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-myuser} 
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-mypassword}
+      POSTGRES_DB: ${DB_NAME:-mydatabase}
     ports:
-      # чтобы можно было подключаться к БД с компьютера
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+
+  backend: 
+    build: . # говорим Docker Compose собрать образ из Dockerfile в текущей директории (.)
+    container_name: my_project_backend
+    restart: always
+    ports:
+      - "8080:8080" # пробрасываем порт 8080 из контейнера на порт 8080 хоста
+    environment: 
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-myuser}
+      DB_PASSWORD: ${DB_PASSWORD:-mypassword}
+      DB_NAME: ${DB_NAME:-mydatabase}
+    depends_on:
+      - db # говорим, что backend должен запускаться ПОСЛЕ того, как сервис db будет готов
 
 volumes:
   postgres_data:

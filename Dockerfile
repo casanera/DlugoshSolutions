@@ -20,6 +20,7 @@ WORKDIR /root/
 
 
 COPY --from=builder /app/myapp .
+COPY --from=builder /app/static ./static
 
 EXPOSE 8080
 

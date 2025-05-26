@@ -9,17 +9,17 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/lib/pq"
+	_ "github.com/lib/pq" // Драйвер PostgreSQL
 
 	"github.com/casanera/DlugoshSolutions/internal/handlers"
 	"github.com/casanera/DlugoshSolutions/internal/storage"
 )
 
-var db *sql.DB
+var db *sql.DB // Глобальная переменная для хранения объекта подключения к БД
 
 func routeHandler(userH *handlers.UserHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Входящий запрос: Метод=%s, Путь=%s, RemoteAddr=%s", r.Method, r.URL.Path, r.RemoteAddr)
+		log.Printf("Входящий запрос (через routeHandler): Метод=%s, Путь=%s, RemoteAddr=%s", r.Method, r.URL.Path, r.RemoteAddr) // Добавлен идентификатор
 
 		// Обработка API эндпоинтов для пользователей
 		if strings.HasPrefix(r.URL.Path, "/api/v1/users") {
@@ -37,7 +37,7 @@ func routeHandler(userH *handlers.UserHandler) http.HandlerFunc {
 					http.Error(w, "Метод POST применим только к /api/v1/users", http.StatusMethodNotAllowed)
 				}
 			case http.MethodPut:
-				// PUT запросы для обновления пользователя требуют ID (т.е. isSpecificUser должно быть true)
+				// PUT запросы для обновления пользователя требуют ID
 				if isSpecificUser {
 					userH.UpdateUserHandler(w, r)
 				} else {
@@ -58,17 +58,12 @@ func routeHandler(userH *handlers.UserHandler) http.HandlerFunc {
 			}
 			return
 		}
-
-		// Обработчик для корневого пути "/"
-		if r.URL.Path == "/" {
-			homeHandler(w, r)
-			return
-		}
-		log.Printf("Маршрут не найден для: %s", r.URL.Path)
+		log.Printf("routeHandler: Маршрут не найден для: %s (это неожиданно, если не /api/)", r.URL.Path)
 		http.NotFound(w, r)
 	}
 }
 
+// homeHandler больше не будет напрямую обрабатывать "/", так как это делает FileServer.
 func homeHandler(w http.ResponseWriter, r *http.Request) {
 	if db == nil {
 		log.Println("Ошибка в homeHandler: подключение к БД (db) равно nil")
@@ -81,7 +76,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Внутренняя ошибка сервера: не удалось подключиться к БД. "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	fmt.Fprintf(w, "Сервер работает и успешно подключился к PostgreSQL. CRUD API доступен по /api/v1/users")
+	fmt.Fprintf(w, "Статус сервера: ОК. Подключение к PostgreSQL: ОК. Фронтенд доступен по корневому пути '/'. API на '/api/v1/users'.")
 }
 
 func main() {
@@ -144,23 +139,25 @@ func main() {
 	}
 
 	userStorage := storage.NewPostgresUserStorage(db)
-
 	userHandler := handlers.NewUserHandler(userStorage)
-
-	http.HandleFunc("/", routeHandler(userHandler))
-
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/", routeHandler(userHandler))
+	staticFileServer := http.FileServer(http.Dir("./static"))
+	// Регистрируем FileServer для обработки всех запросов к корневому пути "/" и его подпутям
+	mux.Handle("/", staticFileServer)
+	mux.HandleFunc("/status", homeHandler)
 	appPort := os.Getenv("APP_PORT")
 	if appPort == "" {
 		appPort = "8080" // Порт по умолчанию
 		log.Printf("Переменная окружения APP_PORT не установлена, используется порт по умолчанию: %s", appPort)
 	}
+	log.Printf("Сервер backend (с CRUD и фронтендом) запускается на порту :%s", appPort)
+	log.Printf("API пользователей доступно по /api/v1/users (обрабатывается через routeHandler)")
+	log.Printf("Статические файлы (фронтенд) раздаются из папки ./static и доступны по адресу: http://localhost:%s/", appPort)
+	log.Printf("Для проверки статуса (если раскомментирован /status): http://localhost:%s/status", appPort)
 
-	log.Printf("Сервер backend (с CRUD) запускается на порту :%s", appPort)
-	log.Printf("API пользователей доступно по /api/v1/users")
-	log.Printf("Для проверки доступности сервера откройте в браузере: http://localhost:%s/", appPort)
-
-	// Запускаем HTTP-сервер
-	if err := http.ListenAndServe(":"+appPort, nil); err != nil {
+	// Вместо `http.ListenAndServe(":"+appPort, nil)` используем `mux`.
+	if err := http.ListenAndServe(":"+appPort, mux); err != nil {
 		log.Fatalf("Ошибка при запуске HTTP-сервера: %v", err)
 	}
 }
